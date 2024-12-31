@@ -5,64 +5,68 @@ import (
     "fmt"
     "log"
     "net/http"
-    "sync"
 )
 
+// Структура Student содержит данные о студенте.
 type Student struct {
-    FullName         string `json:"fullname"`
-    MathScore        int    `json:"math_score"`
-    InformaticsScore int    `json:"informatics_score"`
-    EnglishScore     int    `json:"english_score"`
+    FullName         string `json:"FullName"`
+    MathScore        int    `json:"MathScore"`
+    InformaticsScore int    `json:"InformaticsScore"`
+    EnglishScore     int    `json:"EnglishScore"`
 }
 
-var (
-    admittedStudents []Student
-    mu               sync.Mutex
-)
+// Срез (глобальный) для хранения поступивших студентов
+var admittedStudents []Student
 
-func main() {
-    // Маршрут для приёма заявок
-    http.HandleFunc("/apply", applyHandler)
-
-    // Маршрут для получения списка поступивших
-    http.HandleFunc("/admitted", admittedHandler)
-
-    fmt.Println("Сервер слушает на порту 8080...")
-    if err := http.ListenAndServe(":8080", nil); err != nil {
-        log.Fatal(err)
-    }
-}
-
-// Обработчик для /apply
+// Обработчик для маршрута /apply
 func applyHandler(w http.ResponseWriter, r *http.Request) {
+    // Разрешаем только POST-запрос
     if r.Method != http.MethodPost {
-        http.Error(w, "Только метод POST поддерживается", http.StatusMethodNotAllowed)
+        http.Error(w, "Только POST-запросы поддерживаются", http.StatusMethodNotAllowed)
         return
     }
 
+    // Декодируем входящий JSON в структуру Student
     var s Student
-    decoder := json.NewDecoder(r.Body)
-    if err := decoder.Decode(&s); err != nil {
-        http.Error(w, "Невозможно декодировать JSON", http.StatusBadRequest)
+    err := json.NewDecoder(r.Body).Decode(&s)
+    if err != nil {
+        http.Error(w, "Ошибка декодирования JSON", http.StatusBadRequest)
         return
     }
 
+    // Проверяем сумму баллов
     totalScore := s.MathScore + s.InformaticsScore + s.EnglishScore
     if totalScore >= 14 {
-        // Добавляем студента в список поступивших
-        mu.Lock()
+        // Добавляем в список поступивших
         admittedStudents = append(admittedStudents, s)
-        mu.Unlock()
-        fmt.Fprintf(w, "Студент %s поступил!\n", s.FullName)
+        w.WriteHeader(http.StatusOK)
+        fmt.Fprintf(w, "Студент %s поступил! Сумма баллов: %d\n", s.FullName, totalScore)
     } else {
+        // Студент не прошёл порог
+        w.WriteHeader(http.StatusOK)
         fmt.Fprintf(w, "Студент %s не поступил. Сумма баллов: %d\n", s.FullName, totalScore)
     }
 }
 
-// Обработчик для /admitted
+// Обработчик для маршрута /admitted
 func admittedHandler(w http.ResponseWriter, r *http.Request) {
+    // Разрешаем только GET-запрос
+    if r.Method != http.MethodGet {
+        http.Error(w, "Только GET-запросы поддерживаются", http.StatusMethodNotAllowed)
+        return
+    }
+
+    // Возвращаем список поступивших студентов в формате JSON
     w.Header().Set("Content-Type", "application/json")
-    mu.Lock()
-    defer mu.Unlock()
     json.NewEncoder(w).Encode(admittedStudents)
+}
+
+func main() {
+    // Регистрируем обработчики
+    http.HandleFunc("/apply", applyHandler)
+    http.HandleFunc("/admitted", admittedHandler)
+
+    fmt.Println("Сервер запущен на порту 8080...")
+    // Запускаем сервер на порту 8080
+    log.Fatal(http.ListenAndServe(":8080", nil))
 }
